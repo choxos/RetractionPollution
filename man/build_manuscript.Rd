@@ -9,7 +9,8 @@ build_manuscript(
   output_dir,
   max_analysis_depth = 2L,
   render = TRUE,
-  compute_unique_post_d2 = TRUE
+  compute_unique_post_d2 = TRUE,
+  include_control = TRUE
 )
 }
 \arguments{
@@ -23,6 +24,9 @@ build_manuscript(
 
 \item{compute_unique_post_d2}{logical; compute the unique post-notice depth-2
 node count (a full two-hop scan).}
+
+\item{include_control}{logical; build the matched non-retracted control
+comparison (an additional scan over the depth-2 edges).}
 }
 \value{
 path to the stats JSON.

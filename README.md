@@ -37,11 +37,19 @@ Rscript -e 'retractionpollution::manuscript(db = "legacy/data/processed/opencita
 ```
 
 This writes `outputs/opencitations/manuscript_stats.json` (all computed values),
-the six `manuscript_fig*` figures, and renders `manuscript.{md,html,pdf,docx}`.
+the `manuscript_fig*` figures, and renders `manuscript.{md,html,pdf,docx}`.
 Post-notice totals are reported as counts of **distinct** papers alongside the
 per-seed relationship sums, and the network is summarized with quantitative
 reach-survival, concentration (Lorenz/Gini), and notice-aligned event-study
 figures rather than an uninterpretable full-graph rendering.
+
+The manuscript build also produces:
+
+- a **matched non-retracted control arm** (`R/control.R`): each seed is matched
+  to a non-retracted depth-1 paper of the same publication year and similar
+  citation in-degree, and post-notice citation share is compared within pairs;
+- a legible **sampled ego-network** of the largest pollution neighborhood
+  (seed to direct citers to depth-2), in place of the full-graph hairball.
 
 ## Audit-driven fixes (vs. legacy Python)
 

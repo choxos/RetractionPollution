@@ -300,7 +300,7 @@ numbers and figures from committed code.
 | **R3** density hairball figure | Replaced by Figure 2: log-log reach survival (CCDF) + Lorenz concentration curve (Gini 0.899). |
 | **R4** log two-bar figure | Replaced by Figure 6: notice-aligned event study of direct citations (pre/post the notice year). |
 | **R5** scrambled figure file names | Figures renamed `manuscript_fig1`..`fig6` to match in-text numbers; old `manuscript_figure*` files removed. |
-| **M1** causal framing / no baseline | Framing softened to descriptive throughout; the within-seed event-study (Figure 6) is the descriptive temporal baseline. A matched non-retracted control remains future work (needs a control crawl) and is stated as such. |
+| **M1** causal framing / no baseline | Framing softened to descriptive throughout; added a within-seed event study (Figure 6) AND a matched non-retracted control arm (`R/control.R`, Figure 7): each seed is matched to a non-retracted depth-1 paper on publication year + citation in-degree, and post-notice citation share is compared within pairs (20,059 pairs; median seed share 27% vs control 54%, seeds fade faster post-notice; Wilcoxon p < 0.001). Confounds of the control pool disclosed in Limitations. |
 | **M2** global-depth attribution | Disclosed in Methods (Graph Definition) and Limitations. |
 | **M3** no-DOI selection bias | Disclosed with direction (older/non-journal/lower-resource) in Limitations. |
 | **M4** overcount parents | Resolved with a hard bound: overcount parents contributed only 24,608 excess citations (net delta 11,491), under 0.1% of the graph; stated in Methods and Limitations. |

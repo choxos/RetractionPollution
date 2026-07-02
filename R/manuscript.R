@@ -483,6 +483,111 @@ build_manuscript_figures <- function(stats, figure_dir) {
     fig6 = "manuscript_fig6_post_notice_eventstudy")
 }
 
+#' Build a legible sampled ego-network of the largest pollution neighborhood.
+#'
+#' The full 31.6M-edge graph cannot be drawn. This renders one concrete example:
+#' the seed with the largest reach, a random sample of its direct citers, and a
+#' random sample of the depth-2 papers citing those citers, laid out with a
+#' force-directed algorithm and colored by depth. Sampling is seeded for
+#' reproducibility and disclosed in the caption.
+#'
+#' @param store StudyStore.
+#' @param tables_dir directory with `top_polluted_seeds.csv`.
+#' @param figure_dir output directory.
+#' @param max_direct integer cap on sampled direct citers.
+#' @param max_depth2 integer cap on sampled depth-2 nodes.
+#' @param sample_seed integer RNG seed.
+#' @return list with the seed title and shown node/edge counts.
+#' @noRd
+build_network_figure <- function(store, tables_dir, figure_dir,
+                                 max_direct = 120L, max_depth2 = 350L,
+                                 sample_seed = 42L) {
+  con <- store$con
+  top <- readr::read_csv(file.path(tables_dir, "top_polluted_seeds.csv"),
+                         n_max = 1L, show_col_types = FALSE, progress = FALSE)
+  sid <- top$openalex_id[1]
+  stitle <- top$title[1]
+  qid <- DBI::dbQuoteString(con, sid)
+
+  direct <- DBI::dbGetQuery(con, sprintf(
+    "SELECT DISTINCT source_id FROM citation_edges
+     WHERE target_id = %s AND depth = 1", qid))$source_id
+  if (length(direct) == 0L) return(list(seed_title = stitle, nodes = 0L))
+  set.seed(sample_seed)
+  if (length(direct) > max_direct) direct <- sample(direct, max_direct)
+
+  dtbl <- paste0("tmp_net_direct_", Sys.getpid())
+  DBI::dbWriteTable(con, dtbl, data.frame(id = direct, stringsAsFactors = FALSE),
+                    temporary = TRUE, overwrite = TRUE)
+  dref <- DBI::dbQuoteIdentifier(con, dtbl)
+  d2 <- DBI::dbGetQuery(con, sprintf(
+    "SELECT e.source_id, e.target_id FROM citation_edges e
+     JOIN %s d ON e.target_id = d.id WHERE e.depth = 2", dref))
+  DBI::dbRemoveTable(con, dtbl)
+  if (nrow(d2) > max_depth2) d2 <- d2[sample(nrow(d2), max_depth2), ]
+
+  edges <- rbind(
+    data.frame(from = direct, to = sid, layer = "d1", stringsAsFactors = FALSE),
+    if (nrow(d2) > 0L) data.frame(from = d2$source_id, to = d2$target_id,
+                                  layer = "d2", stringsAsFactors = FALSE)
+  )
+  nodes <- data.frame(
+    id = unique(c(sid, direct, d2$source_id, d2$target_id)),
+    stringsAsFactors = FALSE)
+  nodes$depth <- ifelse(nodes$id == sid, 0L,
+                        ifelse(nodes$id %in% direct, 1L, 2L))
+
+  g <- igraph::graph_from_data_frame(edges[, c("from", "to")],
+                                     vertices = nodes, directed = TRUE)
+  set.seed(sample_seed)
+  lay <- igraph::layout_with_fr(g)
+  nodes$x <- lay[, 1]
+  nodes$y <- lay[, 2]
+  pos <- stats::setNames(seq_len(nrow(nodes)), nodes$id)
+  seg <- data.frame(
+    x = nodes$x[pos[edges$from]], y = nodes$y[pos[edges$from]],
+    xend = nodes$x[pos[edges$to]], yend = nodes$y[pos[edges$to]],
+    layer = edges$layer, stringsAsFactors = FALSE)
+  nodes$Depth <- factor(c("Seed (depth 0)", "Direct citer (depth 1)",
+                          "Depth-2 descendant")[nodes$depth + 1L],
+                        levels = c("Seed (depth 0)", "Direct citer (depth 1)",
+                                   "Depth-2 descendant"))
+
+  p <- ggplot2::ggplot() +
+    ggplot2::geom_segment(
+      data = seg,
+      ggplot2::aes(x = x, y = y, xend = xend, yend = yend),
+      color = "grey72", linewidth = 0.15, alpha = 0.5) +
+    ggplot2::geom_point(
+      data = nodes[nodes$depth == 2L, ],
+      ggplot2::aes(x, y, color = Depth), size = 0.9, alpha = 0.8) +
+    ggplot2::geom_point(
+      data = nodes[nodes$depth == 1L, ],
+      ggplot2::aes(x, y, color = Depth), size = 1.8) +
+    ggplot2::geom_point(
+      data = nodes[nodes$depth == 0L, ],
+      ggplot2::aes(x, y, color = Depth), size = 5) +
+    ggplot2::scale_color_manual(values = c(
+      "Seed (depth 0)" = "#b91c1c",
+      "Direct citer (depth 1)" = "#f97316",
+      "Depth-2 descendant" = "#1d4ed8")) +
+    ggplot2::coord_equal() +
+    ggplot2::labs(
+      color = NULL,
+      title = "An example citation-pollution neighborhood",
+      subtitle = paste0("Sampled ego-network of the highest-reach seed: ",
+                        substr(stitle, 1, 60))) +
+    ggplot2::theme_void(base_size = 12) +
+    ggplot2::theme(legend.position = "top",
+                   plot.title = ggplot2::element_text(face = "bold"))
+  manuscript_save(p, file.path(figure_dir, "manuscript_fig8_example_network"),
+                  8.5, 7)
+  list(seed_title = stitle,
+       nodes = nrow(nodes),
+       direct_shown = length(direct),
+       depth2_shown = sum(nodes$depth == 2L))
+}
+
 #' Build the reproducible manuscript: stats JSON, figures, and rendered docs.
 #'
 #' @param store StudyStore.
@@ -491,10 +596,13 @@ build_manuscript_figures <- function(stats, figure_dir) {
 #' @param render logical; render the Quarto manuscript when Quarto is available.
 #' @param compute_unique_post_d2 logical; compute the unique post-notice depth-2
 #'   node count (a full two-hop scan).
+#' @param include_control logical; build the matched non-retracted control
+#'   comparison (an additional scan over the depth-2 edges).
 #' @return path to the stats JSON.
 #' @export
 build_manuscript <- function(store, output_dir, max_analysis_depth = 2L,
-                             render = TRUE, compute_unique_post_d2 = TRUE) {
+                             render = TRUE, compute_unique_post_d2 = TRUE,
+                             include_control = TRUE) {
   ensure_dir(output_dir)
   table_dir <- file.path(output_dir, "tables")
   figure_dir <- file.path(output_dir, "figures")
@@ -502,6 +610,22 @@ build_manuscript <- function(store, output_dir, max_analysis_depth = 2L,
   stats <- compute_manuscript_stats(store, table_dir, max_analysis_depth,
                                     compute_unique_post_d2)
   figs <- build_manuscript_figures(stats, figure_dir)
+
+  stats$network <- tryCatch(
+    build_network_figure(store, table_dir, figure_dir),
+    error = function(e) {
+      message("Network figure skipped: ", conditionMessage(e))
+      NULL
+    })
+
+  if (isTRUE(include_control)) {
+    stats$control <- tryCatch(
+      build_control_comparison(store, output_dir),
+      error = function(e) {
+        message("Control comparison skipped: ", conditionMessage(e))
+        NULL
+      })
+  }
 
   stats_out <- stats
   stats_out$reach_vector <- NULL

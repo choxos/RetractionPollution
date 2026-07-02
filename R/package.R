@@ -18,6 +18,11 @@ if (getRversion() >= "2.15.1") {
     # manuscript.R figure/aggregation variables
     "offset_year", "edge_count", "distinct_sources", "distinct_targets",
     "surv", "reach", "L", "p", "count", "layer", "short", "period",
-    "value", "source_api", "nodes", "pubdate_null", "label", "x", "y", "lab"
+    "value", "source_api", "nodes", "pubdate_null", "label", "x", "y", "lab",
+    # control.R matched-comparison variables
+    "share", "group", "share_diff", "control_share", "seed_share",
+    "control_id", "control_post_in", "control_indeg_dated", "pair_id", "indeg",
+    # network figure variables
+    "xend", "yend", "Depth"
   ))
 }

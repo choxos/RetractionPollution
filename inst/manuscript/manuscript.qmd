@@ -31,7 +31,14 @@ pct <- function(x) paste0(formatC(as.numeric(x), format = "f", digits = 1), "%")
 r <- s$reach
 pn <- s$post_notice
 rc <- s$reconciliation
+ctl <- s$control
 seeds_affected_pct <- 100 * pn$seeds_with_post_direct / r$seed_papers
+sh <- function(x) paste0(formatC(100 * as.numeric(x), digits = 1, format = "f"), "%")
+pv <- function(p) {
+  p <- as.numeric(p)
+  if (is.na(p)) "NA" else if (p < 0.001) "< 0.001" else
+    formatC(p, digits = 3, format = "f")
+}
 ```
 
 ## Abstract
@@ -267,6 +274,60 @@ depth-2 count is `r cm(pn$depth2_unique_nodes)`.
 
 ![**Figure 6. Direct citations of seed papers relative to the notice year.** Each seed's direct citations are aligned so that year 0 is the notice year; bars to the right of the dashed line are citations published after the notice.](figures/manuscript_fig6_post_notice_eventstudy.png)
 
+### Matched Non-Retracted Control Comparison
+
+To ask whether post-notice citation of retracted work is unusual, each seed
+paper with at least one dated direct citer was matched to a non-retracted
+control paper of the same publication year and similar citation in-degree.
+Controls were drawn from the depth-1 layer, the only papers in this
+OpenCitations-only graph with a complete, dated incoming-citation history. Each
+control was assigned its matched seed's notice date as a pseudo-event, and the
+share of each paper's direct citations published after that date was compared
+within pairs. This is a conservative comparison: the controls themselves cite a
+retracted seed, so they sit in the same citation neighborhoods.
+
+```{r control, results='asis'}
+if (!is.null(ctl) && !is.null(ctl$matched_pairs) && ctl$matched_pairs > 0) {
+  d <- as.numeric(ctl$median_share_diff)
+  sig <- as.numeric(ctl$wilcoxon_p) < 0.05
+  direction <- if (!sig) {
+    "a similar share of"
+  } else if (d > 0) {
+    "a **larger** share of"
+  } else {
+    "a **smaller** share of"
+  }
+  interp <- if (!sig) {
+    paste("The difference is not statistically distinguishable, so this",
+          "descriptive comparison does not show retracted papers being cited",
+          "post-notice at a rate different from matched controls.")
+  } else if (d > 0) {
+    paste("Retracted and concerning papers therefore accrue a larger share of",
+          "their citations after the notice than comparable non-retracted",
+          "papers, consistent with citation that does not respond to the notice.")
+  } else {
+    paste("Retracted and concerning papers therefore accrue a smaller share of",
+          "their citations after the notice than comparable non-retracted",
+          "papers.")
+  }
+  cat(sprintf(paste0(
+    "Across %s matched pairs (%s unique control papers), the median post-notice ",
+    "citation share was %s for retracted or concerning seeds versus %s for matched ",
+    "non-retracted controls, a median paired difference of %s (seeds higher in %s ",
+    "of pairs; Wilcoxon signed-rank p %s). Seeds accrue %s their citations after the ",
+    "notice relative to matched controls. %s\n"),
+    cm(ctl$matched_pairs), cm(ctl$unique_controls),
+    sh(ctl$seed_share_median), sh(ctl$control_share_median),
+    sh(d),
+    paste0(formatC(ctl$pct_pairs_seed_higher, digits = 0, format = "f"), "%"),
+    pv(ctl$wilcoxon_p), direction, interp))
+} else {
+  cat("_Matched-control comparison was not run for this output._\n")
+}
+```
+
+![**Figure 7. Matched non-retracted control comparison.** (A) Direct citations by year relative to the notice, as a share of each group's citations, for seeds and matched controls. (B) Within-pair difference in the share of citations published after the notice date (seed minus control); the blue line is the median.](figures/manuscript_fig7_control_comparison.png)
+
 ### Bridge Identifiers Highlight High-Volume Intermediates
 
 Bridge identifiers are depth-1 nodes that cite a seed and are themselves cited by
@@ -283,6 +344,30 @@ knitr::kable(data.frame(
   `Depth-2 citer count` = cm(b$depth2_citer_count),
   check.names = FALSE))
 ```
+
+### Visualizing a Pollution Neighborhood
+
+The full graph has `r cm(s$total_nodes)` nodes and `r cm(s$total_edges)` edges
+and cannot be drawn legibly; a force-directed image of 31.6 million edges is an
+uninterpretable mass, which is why the complete graph is supplied as compressed
+GraphML (see Data Availability). To show what a neighborhood looks like, Figure 8
+renders one concrete example: the highest-reach seed, a random sample of its
+direct citers, and a random sample of the depth-2 papers citing those citers,
+laid out with a force-directed algorithm and colored by depth.
+
+```{r network, results='asis'}
+if (!is.null(s$network) && !is.null(s$network$nodes) && s$network$nodes > 0) {
+  cat(sprintf(paste0(
+    "The example shows the seed *%s* with %s sampled direct citers and %s ",
+    "sampled depth-2 descendants (%s nodes drawn). The layered fan from the ",
+    "central seed outward illustrates how a single retracted paper anchors a ",
+    "large downstream neighborhood.\n"),
+    substr(s$network$seed_title, 1, 70), cm(s$network$direct_shown),
+    cm(s$network$depth2_shown), cm(s$network$nodes)))
+}
+```
+
+![**Figure 8. An example citation-pollution neighborhood.** A seeded random sample of the largest seed's ego-network through depth 2. The central red node is the retracted seed, orange nodes are direct citers, and blue nodes are depth-2 descendants. This is one sampled example, not the full graph.](figures/manuscript_fig8_example_network.png)
 
 ## Discussion
 
@@ -314,10 +399,19 @@ stop at the notice, not that the notice caused or failed to cause any change.
 
 ## Limitations
 
-1. **Descriptive only.** These are network counts, not causal estimates. The
-   study does not model a post-notice citation rate, time at risk, or a matched
-   non-retracted comparator; the event-study figure is a within-seed descriptive
-   alignment, not a difference-in-differences estimate.
+1. **Descriptive only.** These are network counts and matched descriptive
+   comparisons, not causal estimates. The event study is a within-seed alignment
+   and the matched-control comparison assigns controls a pseudo-notice date; the
+   study does not model time-at-risk, citation sentiment, or a
+   difference-in-differences effect of the notice.
+2. **Matched-control pool.** Controls are non-retracted papers drawn from the
+   depth-1 layer (papers that themselves cite a retracted seed), the only papers
+   with a fully crawled incoming-citation history in this OpenCitations-only
+   graph. They are not a random sample of the literature, and the difference in
+   post-notice citation share may partly reflect the distinct citation-timing
+   profiles of high-profile retracted papers rather than the notice alone.
+   Matching controls for publication year and citation in-degree, not for field
+   or citation burstiness.
 2. **OpenCitations-only scope.** OpenAlex expansion was not used, so coverage is
    bounded by the OpenCitations Index; `r cm(r$zero_reach_n)`
    (`r pct(r$zero_reach_pct)`) seeds have zero indexed reach.
