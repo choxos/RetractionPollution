@@ -1,0 +1,363 @@
+---
+title: "Retraction Pollution in the Scholarly Citation Network: A Complete OpenCitations Depth-2 Study"
+format:
+  gfm: default
+  html:
+    embed-resources: true
+    toc: true
+    number-sections: true
+  pdf:
+    toc: false
+    number-sections: true
+    geometry: margin=1in
+  docx:
+    number-sections: true
+params:
+  stats_json: ""
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+s <- jsonlite::fromJSON(params$stats_json)
+cm <- function(x) {
+  if (is.null(x) || length(x) == 0L || is.na(x[1])) return("NA")
+  formatC(as.numeric(x), format = "d", big.mark = ",")
+}
+f1 <- function(x) formatC(as.numeric(x), format = "f", digits = 1, big.mark = ",")
+pct <- function(x) paste0(formatC(as.numeric(x), format = "f", digits = 1), "%")
+r <- s$reach
+pn <- s$post_notice
+rc <- s$reconciliation
+seeds_affected_pct <- 100 * pn$seeds_with_post_direct / r$seed_papers
+```
+
+## Abstract
+
+**Background.** Retracted articles and articles with expressions of concern can
+continue to shape later research after public notice. Their influence may spread
+through direct citations and through second-order citation paths in which later
+papers cite work that had cited the retracted or concerning paper.
+
+**Objective.** To construct and analyze a complete OpenCitations depth-2 citation
+network around Retraction Watch records classified as retractions or expressions
+of concern, and to describe how far, and how unevenly, that network reaches.
+
+**Methods.** Retraction Watch records were filtered to retractions and
+expressions of concern, collapsed to resolved DOI seed papers, and expanded with
+OpenCitations. Depth 0 denotes seed papers, depth 1 denotes direct citers of
+seeds, and depth 2 denotes citers of depth-1 papers. Bulk extraction was
+reconciled against citation-count totals, and every undercounted parent was
+checked with targeted REST retrieval. The study was considered complete only when
+every depth-0 and depth-1 parent was processed and failed-parent metadata was
+zero. All results are descriptive; no causal effect of notices is estimated.
+
+**Results.** The completed graph contains `r cm(s$depth0_nodes)` seed nodes,
+`r cm(s$depth1_nodes)` direct-citer nodes, `r cm(s$depth2_nodes)` depth-2
+terminal nodes, and `r cm(s$total_edges)` citation edges
+(`r cm(s$total_nodes)` nodes total), exported as compressed GraphML. Seed-level
+downstream reach is heavy-tailed and highly concentrated: the median seed had
+`r cm(r$reach_median)` unique descendants through depth 2 while the maximum was
+`r cm(r$reach_max)`, `r cm(r$zero_reach_n)` seeds (`r pct(r$zero_reach_pct)`) had
+zero indexed reach, and the Gini coefficient of reach was
+`r formatC(r$reach_gini, digits = 3, format = "f")`. The largest neighborhood
+belonged to *Primary Prevention of Cardiovascular Disease with a Mediterranean
+Diet*. `r cm(pn$direct_unique_nodes)` unique papers cited a seed after that
+seed's notice date, affecting `r cm(pn$seeds_with_post_direct)` seeds.
+
+**Conclusions.** Downstream citation exposure to retracted and concerning papers
+is concentrated but large: most seed papers have modest depth-2 reach, while a
+small tail remains embedded in very large downstream neighborhoods, and citation
+after public notice remains common. These are descriptive network results, not
+causal estimates of notice effects.
+
+## Introduction
+
+Retractions and expressions of concern are public warnings about the reliability
+of scholarly work. Their practical effect depends partly on whether the affected
+work continues to circulate through the literature. A retracted article may be
+cited directly after notice, but it may also continue to influence later work
+indirectly when papers that cited it become sources for still more papers.
+
+This study treats that problem as a network measurement task. The relevant object
+is not a list of retracted papers, but a directed citation graph around those
+papers, in which a citation edge points from the citing work to the cited work. A
+depth-2 graph captures three layers: the seed paper, its direct citers, and
+papers citing those direct citers.
+
+The main methodological risk is incompleteness. If direct citers are only
+partially expanded, then all downstream reach estimates are lower bounds. The
+present study therefore uses a completion criterion: every depth-0 and depth-1
+parent must be processed before making a complete depth-2 claim. Depth-2 nodes
+are terminal descendants and are not expanded to depth 3.
+
+## Data Sources
+
+The seed set came from a Retraction Watch snapshot labeled
+`r s$rw_snapshot_date`. The study included records classified as retractions or
+expressions of concern. The loaded seed file contained `r cm(s$seed_records)`
+Retraction Watch records. Of these, `r cm(s$resolved_seed_papers)` DOI-bearing
+canonical seed papers entered the completed depth-2 graph,
+`r cm(s$duplicate_resolved_seed_records)` records were duplicate DOI records, and
+`r cm(s$no_doi_seeds)` records lacked DOI identifiers for this
+OpenCitations-only run and were excluded (see Limitations).
+
+The citation graph used OpenCitations only; OpenAlex expansion was not used. The
+OpenCitations inputs were an OpenCitations DOI citation-count dump
+(`10.6084/m9.figshare.24199089.v6`), the OpenCitations Index CSV dataset
+(`10.6084/m9.figshare.24356626.v7`, 165 ZIP parts), and an OpenCitations Meta
+OMID mapping (Zenodo record `18980639`). OpenCitations access metadata was
+recorded on `r s$oc_access_date`.
+
+## Methods
+
+### Seed Construction
+
+Retraction Watch records were filtered to notice types representing retractions
+or expressions of concern. Records resolving to the same DOI seed paper were
+collapsed to a single source-paper unit for seed-level metrics, keeping the
+earliest available notice date so that post-notice classification counts
+citations after the first public warning.
+
+### Graph Definition
+
+The network is directed from citing work to cited work: for an edge `A -> B`,
+paper `A` cites paper `B`. Depth 0 is the seed papers, depth 1 is papers directly
+citing a seed, and depth 2 is papers citing a depth-1 paper. Node depth is the
+shortest distance from any seed; when the same source-target edge appeared at
+multiple depths, the stored edge retained the shallowest observed depth.
+Consequently, per-seed reach is measured on this globally depth-labeled graph: a
+paper two steps from one seed but one step from another is labeled depth 1 and is
+counted among the direct citers of the nearer seed, not the depth-2 descendants
+of the farther one.
+
+### Completion Procedure
+
+The completed study used a bulk-first OpenCitations workflow: pending depth-1 DOI
+parents were joined to the citation-count dump; zero-citation DOI parents
+(`r cm(rc$zero_count_pruned)`) and non-DOI parents (`r cm(rc$non_doi_terminal)`)
+were marked terminal; the remaining `r cm(rc$nonzero_depth1_parents)` nonzero DOI
+parents were mapped to OMIDs; all 165 Index CSV parts were scanned for
+citing-cited OMID pairs (`r cm(rc$bulk_extracted_rows)` extracted rows,
+`r cm(rc$unique_citing_omids)` unique citing OMIDs, `r cm(rc$unique_citing_omids_mapped)`
+mapped to DOI or PMID); bulk edges were inserted into DuckDB; and parents
+undercounted by the bulk scan relative to the citation-count dump were reconciled
+with targeted REST calls.
+
+The mismatch audit found `r cm(rc$exact_parents)` exact parent counts,
+`r cm(rc$undercount_parents)` undercounted parents, and
+`r cm(rc$overcount_parents)` overcounted parents. All
+`r cm(rc$rest_parents_processed)` undercounted parents were reprocessed by
+targeted REST retrieval with `r cm(rc$rest_failures)` failures
+(`r cm(rc$rest_rows)` citation rows returned). The overcounted parents were not
+re-fetched; because bulk extraction found only `r cm(rc$overcount_extra_citations)`
+citations more than the citation-count dump across all overcounted parents
+(net delta `r cm(rc$net_delta_citations)` against a graph of
+`r cm(s$total_edges)` edges), the maximum possible overcount inflation is under
+0.1% of the edge total. After final reconciliation,
+`r cm(rc$stale_edges_deleted)` stale out-of-frontier citation rows targeting
+`r cm(rc$stale_missing_targets)` non-frontier IDs were removed.
+
+### Analysis
+
+The analysis summarized node counts by depth, edge counts by depth, seed-level
+direct and depth-2 reach, post-notice citation activity, and high-volume depth-1
+bridge identifiers. Every number and figure below is generated from the DuckDB
+store and the analysis tables by committed code (`R/manuscript.R`); no value is
+hand-entered. Because the full graph is too large for an in-memory `igraph` path,
+the study exports the full induced graph as streaming compressed GraphML rather
+than computing force-directed layouts.
+
+## Results
+
+### The Depth-2 Frontier Is Complete
+
+All depth-0 and depth-1 parents were processed; depth 2 is terminal by design.
+
+```{r depth-table}
+dc <- s$depth_counts
+dc$processed <- c(dc$node_count[dc$depth < 2], 0)[seq_len(nrow(dc))]
+knitr::kable(data.frame(
+  Depth = dc$depth,
+  `Node count` = cm(dc$node_count),
+  `Processed` = ifelse(dc$depth < 2, cm(dc$node_count), "0 (terminal)"),
+  check.names = FALSE))
+```
+
+![**Figure 1. Depth-2 network size by frontier layer.** The graph expands from `r cm(s$depth0_nodes)` seeds to `r cm(s$depth1_nodes)` direct citers and `r cm(s$depth2_nodes)` terminal depth-2 descendants (log y-axis).](figures/manuscript_fig1_depth_counts.png)
+
+### Seed-Level Reach Is Heavy-Tailed and Highly Concentrated
+
+The median resolved seed had `r cm(r$reach_median)` unique descendants through
+depth 2; the mean was `r f1(r$reach_mean)` and the maximum `r cm(r$reach_max)`.
+The 99th percentile was `r cm(round(r$reach_p99))`. `r cm(r$zero_reach_n)` seeds
+(`r pct(r$zero_reach_pct)`) had zero indexed reach, reflecting citation-index
+coverage rather than a lack of downstream influence. Reach is extremely
+concentrated: the Gini coefficient is
+`r formatC(r$reach_gini, digits = 3, format = "f")`.
+
+![**Figure 2. Downstream reach is heavy-tailed (A) and highly concentrated (B).** Panel A is the complementary CDF of seed-level depth-2 reach on log-log axes, with the median, 99th percentile, and maximum marked. Panel B is the Lorenz curve of total reach across seeds; the diagonal is perfect equality.](figures/manuscript_fig2_reach_survival_concentration.png)
+
+The largest neighborhoods are driven mainly by depth-2 descendants rather than by
+direct citers alone, which is why the study needed a complete depth-2 graph
+rather than a direct-citation analysis.
+
+```{r top-seeds}
+t <- s$top10
+knitr::kable(data.frame(
+  Rank = seq_len(nrow(t)),
+  Title = substr(t$title, 1, 60),
+  `Notice` = t$notice_type,
+  `Direct` = cm(t$direct_citers),
+  `Depth-2` = cm(t$depth2_descendants),
+  `Total reach` = cm(t$total_depth2_reach),
+  `Post-notice direct` = cm(t$post_notice_direct_citers),
+  check.names = FALSE))
+```
+
+![**Figure 3. Distribution of seed-level depth-2 reach.** The x-axis is log-scaled and adds 1 so zero-reach seeds remain visible.](figures/manuscript_fig4_reach_distribution.png)
+
+![**Figure 4. Largest seed-level citation neighborhoods**, split into direct citers and depth-2 descendants.](figures/manuscript_fig5_top_seed_reach.png)
+
+### The Depth-2 Layer Dominates the Edge Count
+
+```{r edge-table}
+ed <- aggregate(edge_count ~ depth, s$edge_depths, sum)
+knitr::kable(data.frame(
+  `Edge depth` = ed$depth,
+  `Edge count` = cm(ed$edge_count),
+  check.names = FALSE))
+```
+
+Direct seed citations account for `r cm(s$depth1_edges)` edges, while
+second-layer citation edges account for `r cm(s$depth2_edges)` edges. This
+imbalance explains why partial expansion of depth-1 parents would substantially
+understate the downstream network.
+
+![**Figure 5. Citation edge counts by graph layer.**](figures/manuscript_fig3_edge_depths.png)
+
+### Citation After Public Notice Remains Common
+
+Post-notice figures are descriptive counts based on available notice dates and
+citing-work publication dates; they do not estimate whether the notice changed
+citation behavior. To avoid double counting, node-level totals below are counts
+of **distinct** papers. Because a citing paper can cite several seeds, we also
+report the per-seed relationship sums, which are larger than the distinct-node
+counts.
+
+| Measure | Value |
+|---|---:|
+| Seeds with at least one post-notice direct citer | `r cm(pn$seeds_with_post_direct)` |
+| Seeds with at least one post-notice depth-2 descendant | `r cm(pn$seeds_with_post_depth2)` |
+| Distinct papers that cite a seed after its notice (direct) | `r cm(pn$direct_unique_nodes)` |
+| Distinct depth-2 papers published after a source seed's notice | `r cm(pn$depth2_unique_nodes)` |
+| Post-notice seed-direct citation relationships (sum over seeds) | `r cm(pn$direct_relationship_sum)` |
+| Post-notice seed-depth-2 relationships (sum over seeds) | `r cm(pn$depth2_relationship_sum)` |
+
+`r cm(pn$direct_unique_nodes)` distinct papers cited a seed after its notice
+date, affecting `r cm(pn$seeds_with_post_direct)` of `r cm(r$seed_papers)` seeds
+(`r pct(seeds_affected_pct)`). The per-seed relationship sum
+(`r cm(pn$direct_relationship_sum)`) is larger because some citing papers cite
+several retracted seeds. The depth-2 relationship sum
+(`r cm(pn$depth2_relationship_sum)`) exceeds the number of depth-2 nodes and must
+be read as a sum of per-seed counts, not as a distinct-paper total; the distinct
+depth-2 count is `r cm(pn$depth2_unique_nodes)`.
+
+![**Figure 6. Direct citations of seed papers relative to the notice year.** Each seed's direct citations are aligned so that year 0 is the notice year; bars to the right of the dashed line are citations published after the notice.](figures/manuscript_fig6_post_notice_eventstudy.png)
+
+### Bridge Identifiers Highlight High-Volume Intermediates
+
+Bridge identifiers are depth-1 nodes that cite a seed and are themselves cited by
+many depth-2 nodes. In the OpenCitations-only output many bridge identifiers lack
+titles because metadata enrichment was not run, so the bridge table is useful for
+prioritizing follow-up rather than for title-level interpretation.
+
+```{r bridge-table}
+b <- s$bridge_top10
+knitr::kable(data.frame(
+  Rank = seq_len(nrow(b)),
+  Identifier = b$openalex_id,
+  `Cited seed count` = cm(b$cited_seed_count),
+  `Depth-2 citer count` = cm(b$depth2_citer_count),
+  check.names = FALSE))
+```
+
+## Discussion
+
+The completed depth-2 graph shows that downstream citation exposure to retracted
+and concerning papers is both widespread and highly concentrated. The median seed
+paper had only `r cm(r$reach_median)` unique descendants through depth 2, but the
+upper tail was extreme (maximum `r cm(r$reach_max)`), and reach is very unequally
+distributed (Gini `r formatC(r$reach_gini, digits = 3, format = "f")`). The most
+important empirical feature is therefore not the average, but the skew: a small
+number of seeds account for most of the downstream reach, while about a quarter
+have no indexed downstream citations at all.
+
+The depth-2 layer dominates the graph: direct citations to seeds accounted for
+`r cm(s$depth1_edges)` edges, while citations from terminal depth-2 descendants
+accounted for `r cm(s$depth2_edges)` edges. A direct-citation analysis would
+therefore miss most of the observed downstream network. This does not mean every
+second-order citation transmits the original error or claim; it shows that papers
+connected to retracted or concerning work can sit inside very large downstream
+citation neighborhoods.
+
+Citation after public notice remained common: `r cm(pn$direct_unique_nodes)`
+distinct papers cited a seed after its notice date. These counts should be
+interpreted cautiously. A post-notice citation can be critical, neutral, or
+unaware of the notice, and this study does not classify citation sentiment or
+context, nor does it model a citation rate or compare against a matched
+non-retracted control. The event-study view (Figure 6) aligns each seed's direct
+citations to its notice year and is descriptive: it shows that citation does not
+stop at the notice, not that the notice caused or failed to cause any change.
+
+## Limitations
+
+1. **Descriptive only.** These are network counts, not causal estimates. The
+   study does not model a post-notice citation rate, time at risk, or a matched
+   non-retracted comparator; the event-study figure is a within-seed descriptive
+   alignment, not a difference-in-differences estimate.
+2. **OpenCitations-only scope.** OpenAlex expansion was not used, so coverage is
+   bounded by the OpenCitations Index; `r cm(r$zero_reach_n)`
+   (`r pct(r$zero_reach_pct)`) seeds have zero indexed reach.
+3. **No-DOI exclusion.** `r cm(s$no_doi_seeds)` Retraction Watch records without
+   a resolvable DOI were excluded. These skew toward older, non-journal, or
+   lower-resource literature, so the sample under-represents exactly the work
+   most likely to be poorly indexed; reported reach is a lower bound.
+4. **Global-depth attribution.** Per-seed reach uses the globally depth-labeled
+   graph, so a node shared between seeds is attributed to its nearest seed. This
+   is consistent across the study but means per-seed depth-2 reach is a
+   global-neighborhood count, not an independent ego-network.
+5. **Publication-date coverage.** `r cm(s$depth1_pubdate_null)` depth-1 and
+   `r cm(s$depth2_pubdate_null)` depth-2 nodes lack a publication date and cannot
+   be classified as post-notice, so post-notice counts are slight lower bounds. A
+   small number of source records carry implausible future publication years and
+   were not separately filtered.
+6. **Overcount parents.** `r cm(rc$overcount_parents)` parents were not
+   re-fetched; the bounded excess (`r cm(rc$overcount_extra_citations)` citations)
+   is under 0.1% of the graph.
+7. **Metadata enrichment is incomplete.** Topic labels and bridge-paper titles
+   are missing in this OpenCitations-only output and should be enriched before
+   topic-level or title-level claims.
+8. **No depth-3 expansion.** The study is complete for depth 2 only.
+
+## Data Availability and Reproducibility
+
+Every headline number and figure in this manuscript is generated from the study
+store and the analysis tables by committed code (`R/manuscript.R` and
+`inst/manuscript/manuscript.qmd`); the computed values are also written to
+`manuscript_stats.json`. Primary analysis tables are in
+`outputs/opencitations/tables/`, the full induced graph is exported as compressed
+GraphML in `outputs/opencitations/graphs/`, and the rendered manuscript is
+available as HTML, PDF, DOCX, and Markdown.
+
+## Conclusion
+
+The study is complete for its stated OpenCitations depth-2 scope. It provides a
+full graph artifact, reproducible manuscript figures, validation evidence, and
+descriptive results showing that the downstream citation neighborhoods of
+retracted and concerning papers are highly skewed and highly concentrated, and
+that citation after public notice remains common at scale.
+
+_Generated `r s$generated_at`._

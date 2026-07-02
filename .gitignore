@@ -1,0 +1,30 @@
+.DS_Store
+
+# Python (legacy/)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# R
+.Rproj.user
+.Rhistory
+.RData
+*.rds
+!tests/testthat/_snaps/*.rds
+retractionpollution*.tar.gz
+*.tar.gz
+*.Rcheck/
+
+# Generated study artifacts
+data/
+outputs/
+*.duckdb
+*.duckdb.wal
+
+# Local secrets/config
+.env
+.env.*
+!.env.example

@@ -1,0 +1,230 @@
+---
+title: "Retraction Pollution Study Report"
+format:
+  html:
+    toc: true
+    theme: cosmo
+params:
+  summary: ""
+  crawl_summary: ""
+  depth3_truncated: "false"
+  pipeline_mode: "unknown"
+  rw_snapshot_date: "unknown"
+  oc_access_date: "unknown"
+  openalex_access_date: "unknown"
+  top_seeds: "data.frame()"
+  depth_counts: "data.frame()"
+  validation: "data.frame()"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(knitr)
+library(kableExtra)
+
+fmt_kable <- function(df) {
+  if (is.data.frame(df) && nrow(df) > 0L) {
+    kable(df, format = "html") |>
+      kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                    full_width = FALSE)
+  } else {
+    "_(no rows)_"
+  }
+}
+
+parse_summary <- function(s) {
+  if (is.null(s) || !nzchar(s)) return(list())
+  tryCatch(
+    jsonlite::fromJSON(s, simplifyDataFrame = FALSE),
+    error = function(e) {
+      # Try "metric,value" CSV-shaped text
+      out <- list()
+      for (line in strsplit(s, "\n")[[1]]) {
+        parts <- strsplit(line, ",", fixed = TRUE)[[1]]
+        if (length(parts) >= 2L) out[[parts[1]]] <- parts[2]
+      }
+      out
+    }
+  )
+}
+```
+
+# Provenance
+
+This report describes the citation-pollution network constructed around a set
+of retracted or concerning papers. Source snapshots were captured on the dates
+below; all metrics reflect the state of each source at those points in time.
+
+```{r provenance}
+prov <- data.frame(
+  Source = c("Retraction Watch (Retraction + Expression of Concern)",
+             "OpenCitations (DOI-based citation index)",
+             "OpenAlex (work resolution + recursive expansion)"),
+  `Snapshot / Access date` = c(
+    params$rw_snapshot_date,
+    params$oc_access_date,
+    params$openalex_access_date
+  ),
+  check.names = FALSE
+)
+fmt_kable(prov)
+```
+
+**Generated:** `r format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")`
+
+# Summary Metrics
+
+```{r summary}
+summary_list <- parse_summary(params$summary)
+if (length(summary_list) > 0L) {
+  metric_names <- names(summary_list)
+  if (is.null(metric_names) || length(metric_names) != length(summary_list)) {
+    metric_names <- paste0("metric_", seq_along(summary_list))
+  }
+  values <- vapply(summary_list, function(value) {
+    if (is.null(value) || length(value) == 0L) return(NA_character_)
+    as.character(value[[1]])
+  }, character(1))
+  df <- data.frame(
+    Metric = metric_names,
+    Value = values
+  )
+  fmt_kable(df)
+} else {
+  "No analysis summary found. Run `run_analysis()` first."
+}
+```
+
+# Data Sources
+
+- **Retraction Watch.** Seed records are drawn from the Retraction Watch
+  database, filtered to `Retraction` and `Expression of Concern` notice
+  types. Each seed carries the original DOI, notice date, and (where
+  available) the OpenAlex ID of the retracted/concerning paper.
+- **OpenCitations.** DOI-to-DOI citation edges are first sourced from
+  OpenCitations (COCI) for every parent node that carries a DOI, at each
+  frontier depth. This gives the most complete coverage of
+  non-OpenAlex-indexed citations.
+```{r openalex-source-note, results='asis'}
+summary_list <- parse_summary(params$summary)
+openalex_edges <- suppressWarnings(as.integer(summary_list[["openalex_edges"]]))
+if (identical(params$pipeline_mode, "opencitations") ||
+    (!is.na(openalex_edges) && openalex_edges == 0L)) {
+  cat("- **OpenAlex.** Not used for this OpenCitations-only output; OpenAlex edge count is 0.\n")
+} else {
+  cat("- **OpenAlex.** Used to resolve seeds and frontier nodes to canonical work records and to perform recursive referenced-works expansion when OpenCitations returns no edges.\n")
+}
+```
+
+# Network Size by Depth
+
+```{r incomplete-crawl-warning, results='asis'}
+if (is.data.frame(params$validation) &&
+    any(params$validation$check == "frontier_processed_for_depth2_claim" &
+        params$validation$status == "fail")) {
+  cat("**Incomplete crawl warning:** depth-2 graph counts are lower-bound counts from the processed frontier, not complete depth-2 census values.\n\n")
+}
+```
+
+```{r depth-counts-fig}
+depth_png <- "figures/depth_counts.png"
+if (file.exists(depth_png)) {
+  knitr::include_graphics(depth_png)
+} else if (is.data.frame(params$depth_counts) && nrow(params$depth_counts) > 0L) {
+  library(ggplot2)
+  ggplot(params$depth_counts,
+         aes(x = factor(.data$depth), y = .data$node_count)) +
+    geom_col(fill = "#3b82f6") +
+    labs(x = "Network depth", y = "Nodes",
+         title = "Citation Pollution Network Size by Depth") +
+    theme_minimal()
+} else {
+  "_(depth_counts figure and data not available)_"
+}
+```
+
+```{r depth-counts-table}
+if (is.data.frame(params$depth_counts) && nrow(params$depth_counts) > 0L) {
+  fmt_kable(params$depth_counts)
+}
+```
+
+# Most Polluted Seeds
+
+The following retracted or concerning papers have the largest unique
+descendant reach through depth 2 (direct citers plus their citers).
+
+```{r top-seeds-table}
+if (is.data.frame(params$top_seeds) && nrow(params$top_seeds) > 0L) {
+  show_cols <- intersect(
+    c("record_id", "title", "notice_type", "direct_citers",
+      "seed_record_count", "depth2_descendants", "total_depth2_reach",
+      "post_notice_direct_citers", "post_notice_depth2_descendants"),
+    names(params$top_seeds)
+  )
+  fmt_kable(utils::head(params$top_seeds[, show_cols, drop = FALSE], 10L))
+} else {
+  "_(no seed metrics available)_"
+}
+```
+
+```{r top-seeds-fig}
+top_png <- "figures/top_polluted_seeds.png"
+if (file.exists(top_png)) {
+  knitr::include_graphics(top_png)
+}
+```
+
+# Post-Notice Citation Timeline
+
+```{r post-notice-fig, results='asis'}
+timeline_png <- "figures/post_notice_timeline.png"
+if (file.exists(timeline_png)) {
+  knitr::include_graphics(timeline_png)
+  cat("\n\nThe chart shows direct citations to seed papers whose publication date falls **after** the seed's retraction / EOC notice date. This is a descriptive count, not a citation-rate model or causal effect of the notice on later citation behavior.\n")
+} else {
+  "_(No post-notice citations were found; either no seed has a parseable notice date, or no citing work was published after its target's notice date.)_"
+}
+```
+
+# Artifact Validation
+
+```{r validation}
+if (is.data.frame(params$validation) && nrow(params$validation) > 0L) {
+  fmt_kable(params$validation)
+} else {
+  "_(no artifact validation table available)_"
+}
+```
+
+# Collection Notes
+
+- **Depth-2 scope.** The headline tables export the induced frontier graph
+  through depth 2 (seeds -> direct citers -> depth-2 descendants). The artifact
+  validation table records whether the crawl state supports a complete-depth
+  claim; when that check fails, depth-2 metrics are lower bounds from the
+  processed frontier.
+- **Depth-3 cap.** Depth-3 expansion is optional and capped to keep
+  runtime bounded. The `depth3_truncated` flag below records whether the
+  depth-3 frontier was cut short.
+```{r collection-mode-note, results='asis'}
+if (identical(params$pipeline_mode, "opencitations")) {
+  cat("- **Collection mode.** This output was generated in OpenCitations-only mode; OpenAlex metadata enrichment and fallback expansion are not present.\n")
+} else {
+  cat("- **OpenCitations-first ordering.** At each frontier depth, OpenCitations is queried first for DOI-bearing parent nodes; OpenAlex fills gaps and provides recursive expansion where OpenCitations returns nothing.\n")
+}
+```
+- **Min-depth edge merge.** Citation edges are stored with a min-depth
+  merge: when the same (source, target) edge is observed at multiple
+  depths, the shallowest depth wins. This preserves the earliest
+  path length at which a citation relationship was discovered.
+
+**Depth-3 truncation flag:** `r params$depth3_truncated`
+
+# Crawl Metadata
+
+```{r crawl-summary}
+cat("```json\n")
+cat(params$crawl_summary)
+cat("\n```\n")
+```
